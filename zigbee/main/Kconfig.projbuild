@@ -9,4 +9,10 @@ menu "Airloom Wi-Fi"
         default ""
         help
             Stored in the local, Git-ignored sdkconfig. Never commit sdkconfig.
+    config AIRLOOM_UPDATE_PASSWORD
+        string "Firmware update password (12 to 64 printable ASCII characters)"
+        default ""
+        help
+            Required for Web firmware uploads. Empty disables uploads.
+            Stored only in the local sdkconfig and resulting firmware.
 endmenu

@@ -5,3 +5,4 @@ sdkconfig.old
 .venv/
 __pycache__/
 /measurements.jsonl
+/zigbee/ota-password.txt

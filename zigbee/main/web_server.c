@@ -6,6 +6,7 @@
 #include "esp_http_server.h"
 #include "esp_log.h"
 #include "storage.h"
+#include "firmware_update.h"
 
 static const char *TAG = "airloom_web";
 extern const unsigned char dashboard_start[] asm("_binary_dashboard_html_start");
@@ -83,6 +84,7 @@ static esp_err_t history(httpd_req_t *req)
 bool web_server_start(void)
 {
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
+    config.stack_size = 8192;
     config.max_open_sockets = 3;
     config.lru_purge_enable = true;
     config.recv_wait_timeout = 5;
@@ -105,6 +107,10 @@ bool web_server_start(void)
             httpd_stop(server);
             return false;
         }
+    }
+    if (firmware_update_register(server) != ESP_OK) {
+        httpd_stop(server);
+        return false;
     }
     ESP_LOGI(TAG, "HTTP server listening on port %u", config.server_port);
     return true;

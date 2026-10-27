@@ -10,6 +10,7 @@
     *{box-sizing:border-box}body{margin:0}main{max-width:1080px;margin:auto;padding:32px 20px 50px}
     header{display:flex;justify-content:space-between;align-items:center;gap:16px;margin-bottom:24px}h1{font-size:28px;letter-spacing:-1px;margin:0 0 5px}h2{font-size:16px;margin:0 0 14px}p{line-height:1.65;margin:6px 0}.muted,small{color:#63776f;font-size:13px}.connection{border-radius:30px;padding:8px 13px;background:#e0eee3;font-size:13px}.connection.error{background:#fce4db;color:#8b3020}
     .cards,.charts{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-bottom:18px}.card,.panel{background:white;border:1px solid #dce5da;border-radius:16px;padding:24px}.value{font-size:48px;font-weight:600;letter-spacing:-2px;margin:10px 0}.unit{font-size:23px;font-weight:400;letter-spacing:0}.age{color:#63776f;font-size:13px;min-height:1.6em}.panel{margin-bottom:18px}.charts .panel{margin-bottom:0}canvas{display:block;width:100%;height:190px}.note{padding:0 3px 16px}.table-wrap{overflow:auto;max-height:400px}table{width:100%;border-collapse:collapse;font-size:13px;white-space:nowrap}th,td{text-align:left;padding:11px 12px;border-bottom:1px solid #e6ece4}th{position:sticky;top:0;background:white;color:#63776f;font-weight:500}td:first-child{font-variant-numeric:tabular-nums}footer{font-size:12px;color:#63776f}.legend{margin-bottom:6px}.no-data{color:#63776f;padding:16px 0}.paging{display:flex;gap:10px;margin-top:18px}button{font:inherit;padding:9px 15px;border-radius:8px;border:1px solid #cddccc;background:#edf3eb;color:#244c3b;cursor:pointer}button:disabled{opacity:.45;cursor:default}
+    .update-fields{display:grid;gap:14px;max-width:560px;margin-top:18px}.update-fields label{display:grid;gap:6px;font-size:14px}input{font:inherit;max-width:100%;min-width:0}input[type=password]{padding:10px;border:1px solid #cddccc;border-radius:8px}progress{width:100%;height:15px}.update-message{min-height:1.65em;font-size:14px}.update-message.error{color:#8b3020}
     @media(max-width:620px){main{padding:24px 14px}.cards{gap:10px}.card{padding:18px 14px}.value{font-size:36px}.unit{font-size:18px}.charts{grid-template-columns:1fr}.panel{padding:18px}header{align-items:flex-start}.connection{white-space:nowrap}h1{font-size:25px}}
   </style>
 </head>
@@ -26,6 +27,7 @@
     <article class="panel"><h2>湿度の推移</h2><canvas id="humidity-chart" role="img" aria-label="湿度の受信履歴。数値は下の履歴表で確認できます。"></canvas></article>
   </section>
   <section class="panel"><h2>受信履歴</h2><p id="history-note" class="muted legend">履歴を読み込んでいます。</p><div class="table-wrap"><table><thead><tr><th>受信時刻 / 起動後の時間</th><th>報告</th><th>温度 °C</th><th>湿度 %RH</th></tr></thead><tbody id="history"></tbody></table></div><div class="paging"><button id="older" disabled>古い履歴</button><button id="newer" disabled>新しい履歴</button></div></section>
+  <section class="panel" aria-labelledby="update-title"><h2 id="update-title">ファームウェア更新</h2><p id="firmware-version" class="muted">現在のバージョンを確認しています。</p><p class="muted">アプリの更新用 .bin ファイルを指定してください。更新後は本体が再起動し、センサーの受信が一時的に中断します。保存済みの履歴とペアリング情報は保持します。</p><div class="update-fields"><label>更新ファイル<input id="firmware-file" type="file" accept=".bin" disabled></label><label>管理パスワード<input id="firmware-password" type="password" autocomplete="off" disabled></label><button id="firmware-update" type="button" disabled>更新して再起動</button><progress id="firmware-progress" value="0" max="100" aria-label="ファームウェアの送信進捗"></progress><p id="firmware-message" class="update-message" role="status" aria-live="polite"></p></div></section>
   <footer><p id="device">—</p><p>5秒ごとに更新。時刻未同期の記録は、起動ごとの経過時間で表示します。温度・湿度は別々のタイミングで報告されます。</p></footer>
 </main>
 <script>
@@ -35,6 +37,7 @@ const number = value => typeof value === 'number' && Number.isFinite(value);
 const formatValue = value => number(value) ? value.toFixed(2) : '—';
 let history = [];
 let offset = 0, busy = false, timer;
+let firmwareInfo = null, updatingFirmware = false;
 const PAGE_SIZE = 32;
 function elapsed(seconds) {
   if (!number(seconds)) return '不明';
@@ -106,13 +109,13 @@ function drawChart(id, kind, key, color) {
   ctx.fillStyle = '#63776f'; ctx.fillText('古い報告', left, height - 5); ctx.textAlign = 'right'; ctx.fillText('新しい報告', right, height - 5);
 }
 function drawCharts() { drawChart('temperature-chart', 'temperature', 'temperature_c', '#ad633e'); drawChart('humidity-chart', 'humidity', 'humidity_percent', '#357e84'); }
-async function readJson(url) {
-  const controller = new AbortController(), timer = setTimeout(() => controller.abort(), 8000);
+async function readJson(url, timeout = 8000) {
+  const controller = new AbortController(), timer = setTimeout(() => controller.abort(), timeout);
   try { const response = await fetch(url, {cache: 'no-store', signal: controller.signal}); if (!response.ok) throw new Error('HTTP ' + response.status); return await response.json(); }
   finally { clearTimeout(timer); }
 }
 async function refresh() {
-  if (busy) return;
+  if (busy || updatingFirmware) return;
   busy = true;
   clearTimeout(timer);
   byId('older').disabled = true; byId('newer').disabled = true;
@@ -125,12 +128,112 @@ async function refresh() {
     byId('connection').textContent = '通信断'; byId('connection').classList.add('error');
     byId('temperature-age').textContent = '通信断のため現在の鮮度は未確認';
     byId('humidity-age').textContent = '通信断のため現在の鮮度は未確認';
-  } finally { busy = false; timer = setTimeout(refresh, 5000); }
+  } finally { busy = false; if (!updatingFirmware) timer = setTimeout(refresh, 5000); }
+}
+function firmwareMessage(message, error = false) {
+  byId('firmware-message').textContent = message;
+  byId('firmware-message').classList.toggle('error', error);
+}
+function firmwareControls(disabled) {
+  for (const id of ['firmware-file', 'firmware-password', 'firmware-update']) byId(id).disabled = disabled;
+}
+function renderFirmware(info) {
+  firmwareInfo = info;
+  byId('firmware-version').textContent = '現在のバージョン: ' + info.version;
+  const disabled = updatingFirmware || info.updating || info.password_configured !== true;
+  firmwareControls(disabled);
+  if (info.password_configured !== true) firmwareMessage('管理パスワードが未設定のため、更新できません。', true);
+  else if (info.updating) firmwareMessage('本体で更新を実行しています。');
+}
+async function loadFirmwareInfo() {
+  try { renderFirmware(await readJson('/api/firmware')); }
+  catch (_) { firmwareInfo = null; firmwareControls(true); firmwareMessage('更新機能の状態を取得できませんでした。画面を再読み込みしてください。', true); }
+}
+const sleep = milliseconds => new Promise(resolve => setTimeout(resolve, milliseconds));
+function uploadFirmware(file, password) {
+  return new Promise((resolve, reject) => {
+    const request = new XMLHttpRequest();
+    request.open('POST', '/api/firmware');
+    request.timeout = 120000;
+    request.setRequestHeader('Content-Type', 'application/octet-stream');
+    request.setRequestHeader('X-Airloom-Update-Password', password);
+    request.upload.onprogress = event => {
+      if (!event.lengthComputable) return;
+      const percent = Math.floor(event.loaded / event.total * 100);
+      byId('firmware-progress').value = percent;
+      firmwareMessage(percent === 100 ? '送信完了。本体で更新ファイルを確認しています。' : '送信中: ' + percent + '%');
+    };
+    request.onerror = () => reject(new Error('送信中に通信が切れました。更新結果を確認できません。自動で再送は行いません。'));
+    request.ontimeout = () => reject(new Error('送信がタイムアウトしました。更新結果を確認できません。自動で再送は行いません。'));
+    request.onabort = () => reject(new Error('送信が中断されました。'));
+    request.onload = () => {
+      if (request.status !== 200) {
+        const message = request.status === 401 ? '管理パスワードが正しくありません。' :
+          request.status === 413 ? '更新ファイルが本体の容量を超えています。' :
+          request.status === 400 || request.status === 422 ? '更新ファイルが正しくありません。アプリの .bin ファイルを確認してください。' :
+          request.status === 409 ? '本体で別の更新を実行中です。' :
+          '更新ファイルを受け付けられませんでした（HTTP ' + request.status + '）。';
+        reject(new Error(message)); return;
+      }
+      try {
+        const result = JSON.parse(request.responseText);
+        if (result.ok !== true || result.rebooting !== true || !/^[0-9a-f]{64}$/i.test(result.elf_sha256)) throw new Error();
+        resolve(result);
+      } catch (_) { reject(new Error('更新応答を確認できません。再起動後に画面を再読み込みしてください。')); }
+    };
+    request.send(file);
+    byId('firmware-password').value = '';
+  });
+}
+async function waitForFirmwareRestart(before, expectedHash) {
+  const deadline = Date.now() + 90000;
+  while (Date.now() < deadline) {
+    await sleep(Math.min(3000, deadline - Date.now()));
+    const remaining = deadline - Date.now();
+    if (remaining <= 0) break;
+    try {
+      const info = await readJson('/api/firmware', Math.min(8000, remaining));
+      if (info.running_partition !== before.running_partition && info.elf_sha256 === expectedHash &&
+          !info.updating) return info;
+    } catch (_) { /* The connection is expected to close while the device reboots. */ }
+  }
+  throw new Error('更新後の起動を確認できませんでした。画面を再読み込みして状態を確認してください。');
+}
+async function startFirmwareUpdate() {
+  if (updatingFirmware || !firmwareInfo) return;
+  const file = byId('firmware-file').files[0], password = byId('firmware-password').value;
+  if (!file || !file.name.toLowerCase().endsWith('.bin') || !Number.isSafeInteger(file.size) || file.size <= 0) {
+    firmwareMessage('アプリの更新用 .bin ファイルを選択してください。', true); return;
+  }
+  if (file.size > firmwareInfo.update_capacity_bytes) { firmwareMessage('更新ファイルが本体の容量を超えています。', true); return; }
+  if (!password) { firmwareMessage('管理パスワードを入力してください。', true); return; }
+  if (!window.confirm('ファームウェアを更新して本体を再起動します。更新中はセンサーの受信が一時中断します。実行しますか？')) return;
+  updatingFirmware = true; clearTimeout(timer); firmwareControls(true);
+  byId('firmware-progress').value = 0;
+  firmwareMessage('更新の準備をしています。');
+  try {
+    while (busy) await sleep(50);
+    const before = await readJson('/api/firmware');
+    if (before.updating || before.password_configured !== true) throw new Error('現在、本体を更新できません。画面を再読み込みして状態を確認してください。');
+    if (file.size > before.update_capacity_bytes) throw new Error('更新ファイルが本体の容量を超えています。');
+    const result = await uploadFirmware(file, password);
+    firmwareMessage('更新ファイルを受け付けました。再起動後の動作を確認しています。');
+    const after = await waitForFirmwareRestart(before, result.elf_sha256);
+    renderFirmware(after); byId('firmware-file').value = '';
+    firmwareMessage('更新が完了しました。バージョン: ' + after.version);
+  } catch (error) { firmwareMessage(error.message, true); }
+  finally {
+    byId('firmware-password').value = '';
+    updatingFirmware = false;
+    firmwareControls(!firmwareInfo || firmwareInfo.password_configured !== true || firmwareInfo.updating);
+    refresh();
+  }
 }
 byId('older').addEventListener('click', () => { if (!busy) { offset += PAGE_SIZE; refresh(); } });
 byId('newer').addEventListener('click', () => { if (!busy) { offset = Math.max(0, offset - PAGE_SIZE); refresh(); } });
 window.addEventListener('resize', drawCharts);
-refresh();
+byId('firmware-update').addEventListener('click', startFirmwareUpdate);
+refresh().then(loadFirmwareInfo);
 </script>
 </body>
 </html>
