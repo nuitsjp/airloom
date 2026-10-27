@@ -1,0 +1,23 @@
+menu "Airloom HTTP upload"
+    config AIRLOOM_WIFI_SSID
+        string "Wi-Fi SSID"
+        default ""
+        help
+            Stored in the local, Git-ignored sdkconfig. Never commit sdkconfig.
+    config AIRLOOM_WIFI_PASSWORD
+        string "Wi-Fi password"
+        default ""
+        help
+            Stored in the local, Git-ignored sdkconfig. Never commit sdkconfig.
+    config AIRLOOM_HTTP_URL
+        string "HTTP receiver URL"
+        default ""
+    config AIRLOOM_UPLOAD_INTERVAL_SECONDS
+        int "Upload interval in seconds"
+        range 10 604800
+        default 86400
+    config AIRLOOM_STALE_SECONDS
+        int "Measurement stale threshold in seconds"
+        range 1 604800
+        default 172800
+endmenu
