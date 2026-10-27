@@ -1,5 +1,4 @@
 #pragma once
-
 #include <stdbool.h>
 #include <stdint.h>
 
@@ -20,6 +19,3 @@ typedef struct {
 } airloom_snapshot_t;
 
 typedef bool (*airloom_snapshot_fn)(airloom_snapshot_t *snapshot);
-
-/* The callback copies a consistent snapshot and returns false until a sensor is known. */
-bool wifi_upload_start(airloom_snapshot_fn snapshot);

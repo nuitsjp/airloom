@@ -10,7 +10,10 @@
 #include "esp_zigbee.h"
 #include "ezbee/zha.h"
 #include "measurement.h"
-#include "wifi_upload.h"
+#include "snapshot.h"
+#include "network.h"
+#include "storage.h"
+#include "web_server.h"
 
 static const char *TAG = "airloom";
 #define EP 1
@@ -70,7 +73,9 @@ static void retain_value(const ezb_zcl_cmd_hdr_t *h, enum measurement_kind kind,
     case BATTERY_VOLTAGE:
         latest.has_battery_voltage = true; latest.battery_voltage_v = value; latest.battery_voltage_received_us = received_us; break;
     }
+    airloom_snapshot_t retained = latest;
     portEXIT_CRITICAL(&snapshot_lock);
+    if (kind == TEMPERATURE || kind == HUMIDITY) storage_record(&retained, kind == TEMPERATURE);
 }
 
 static void log_value(const ezb_zcl_cmd_hdr_t *h, uint16_t attr, uint8_t type, const void *value)
@@ -272,7 +277,8 @@ static void zigbee_task(void *arg)
     };
     ESP_ERROR_CHECK(esp_zigbee_init(&cfg));
     ESP_ERROR_CHECK(esp_coex_wifi_i154_enable());
-    if (!wifi_upload_start(snapshot_copy)) ESP_LOGE(TAG, "Wi-Fi upload task could not be started");
+    if (!network_start()) ESP_LOGE(TAG, "Wi-Fi network could not be started");
+    if (!web_server_start()) ESP_LOGE(TAG, "Web server could not be started");
     ezb_aps_secur_enable_distributed_security(false);
     ESP_ERROR_CHECK(ezb_bdb_set_primary_channel_set(0x07fff800));
     ESP_ERROR_CHECK(ezb_bdb_set_secondary_channel_set(0));
@@ -297,5 +303,6 @@ static void zigbee_task(void *arg)
 void app_main(void)
 {
     ESP_ERROR_CHECK(nvs_flash_init());
+    if (!storage_start(snapshot_copy)) ESP_LOGE(TAG, "History storage could not be started");
     xTaskCreate(zigbee_task, "zigbee", 6144, NULL, 5, NULL);
 }

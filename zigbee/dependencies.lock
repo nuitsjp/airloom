@@ -13,9 +13,20 @@ dependencies:
     source:
       type: idf
     version: 5.5.4
+  joltwallet/littlefs:
+    component_hash: f65ef32c718e87638ee966b9b02f21639c45bed59c8d0126fd03e9c1f3275a92
+    dependencies:
+    - name: idf
+      require: private
+      version: '>=5.0'
+    source:
+      registry_url: https://components.espressif.com/
+      type: service
+    version: 1.23.0
 direct_dependencies:
 - espressif/esp-zigbee-lib
 - idf
-manifest_hash: ecd4d04de402d4618e438ae27401124385c78244cb0035031ffb63b25a9f251a
+- joltwallet/littlefs
+manifest_hash: 19ab439e5e0a7d6fad1c6bdabc1bfdefcfb8f0c2205ea407fd5e70b5f9b4604a
 target: esp32c6
 version: 2.0.0
